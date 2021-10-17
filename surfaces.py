@@ -1,6 +1,6 @@
 import pygame
 import random
-from display_surface import screen, SIZE, HEIGHT, WIDTH
+from game_settings import screen, HEIGHT, WIDTH, GAME_ACTIVE
 
 DISPLAY_SURFACE = screen
 DISPLAY_SURFACE_WIDTH = WIDTH
@@ -20,7 +20,7 @@ def get_display_surface_height():
 
 
 class CustomSurface(pygame.Surface):
-    def __init__(self, directory: str, scale_surface: bool = False, *args, **kwargs):
+    def __init__(self, directory: str, scale_surface: bool = False, flip_x=False, flip_y=False, *args, **kwargs):
         self.surface = pygame.image.load(directory).convert()
         self.directory = directory
         self.width = self.surface.get_width()
@@ -29,8 +29,13 @@ class CustomSurface(pygame.Surface):
         self.size = (self.width, self.height)
         self.x_position = 0
         self.y_position = 0
+        if flip_x:
+            self.surface = pygame.transform.flip(self.surface, True, False)
+        if flip_y:
+            self.surface = pygame.transform.flip(self.surface, False, True)
         if scale_surface:
             self.surface = pygame.transform.scale2x(self.surface)
+        self.rect = None
         super().__init__(size=self.size, *args, **kwargs)
 
     def change_position(self, x_change=0, y_change=0):
@@ -63,11 +68,17 @@ class BackgroundSurface(CustomSurface):
 
 
 class BirdSurface(CustomSurface):
-    BIRD_GAP = 100
+    BIRD_GAP = 250
 
-    def __init__(self, directory: str, *args, **kwargs):
-        super().__init__(directory, *args, **kwargs)
-        BirdSurface.BIRD_GAP += self.surface.get_height()
+    def check_collisions(self, rects_list: list):
+        for obj in rects_list:
+            if self.rect.colliderect(obj):
+                return False
+
+        if self.rect.top <= - self.surface.get_height() / 2 or self.rect.bottom >= HEIGHT + self.surface.get_height() / 2:
+            return False
+
+        return True
 
     def draw_bird(self, rect):
         """
@@ -79,38 +90,34 @@ class BirdSurface(CustomSurface):
 class PipeSurface(CustomSurface):
     # List of pipes' rects
     PIPE_RECTS_LIST = []
+    bird_gap = BirdSurface.BIRD_GAP
 
-    def create_bottom_pipe_rect(self, x_position=None):
+    def create_top_and_bottom_rects(self, x_position=None):
         # X-axis default starting position
         if not x_position:
-            x_position = WIDTH+self.width
-
+            x_position = WIDTH + self.width
         if self.surface.get_height() > HEIGHT:
-            bottom_pipe_min_midtop = BirdSurface.BIRD_GAP
+            bottom_pipe_min_midtop = self.bird_gap
         else:
             bottom_pipe_min_midtop = HEIGHT - self.surface.get_height()
+        bottom_pipe_max_midtop = HEIGHT - self.bird_gap
 
-        bottom_pipe_max_midtop = HEIGHT
         random_midtop_point = random.randrange(bottom_pipe_min_midtop, bottom_pipe_max_midtop)
         bottom_pipe_rect = self.surface.get_rect(midtop=(x_position, random_midtop_point))
-        return bottom_pipe_rect
 
-    def create_top_pipe_rect(self, bottom_pipe_rect):
-        flip_pipe_surface = pygame.transform.flip(self.surface, False, True)
-        x_position = bottom_pipe_rect.midtop[0]
-        y_position = HEIGHT - bottom_pipe_rect.midtop[1] - BirdSurface.BIRD_GAP
-        top_pipe_rect = flip_pipe_surface.get_rect(midbottom=(x_position, y_position))
-        return top_pipe_rect
+        y_position = random_midtop_point - self.bird_gap
+        top_pipe_rect = self.surface.get_rect(midbottom=(x_position, y_position))
+        return top_pipe_rect, bottom_pipe_rect
 
-    def add_pipe_to_pipes_rects_list(self, pipe):
-        self.PIPE_RECTS_LIST.append(pipe)
+    def add_pipe_to_pipes_rects_list(self, pipes):
+        self.PIPE_RECTS_LIST.extend(pipes)
 
     def move_pipes(self):
         pipes = self.PIPE_RECTS_LIST
         # print(pipes)
         for pipe_rect in pipes:
             pipe_rect.centerx -= 5  # pipe's speed in x axis
-        self.PIPE_RECTS_LIST = pipes
+        # self.PIPE_RECTS_LIST = pipes
         # return self.PIPE_RECTS_LIST
 
     def draw_pipes(self):
@@ -118,4 +125,8 @@ class PipeSurface(CustomSurface):
         Takes a surface (with a given image on the surface) and draws it to the display surface.
         """
         for pipe_rect in self.PIPE_RECTS_LIST:
-            self.display_surface.blit(self.surface, pipe_rect)
+            if pipe_rect.bottom >= HEIGHT:
+                self.display_surface.blit(self.surface, pipe_rect)
+            else:
+                flip_pipe = pygame.transform.flip(self.surface, False, True)
+                self.display_surface.blit(flip_pipe, pipe_rect)
